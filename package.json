@@ -1,0 +1,18 @@
+{
+    "name": "uiloader",
+    "version": "1.0.0",
+    "description": "the ui module/domain loader",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/akq/uiloader.git"
+    },
+    "main": "loader.js",
+    "license": "MIT",
+    "author": "akq",
+    "bugs": {
+        "url": "https://github.com/akq/uiloader/issues"
+    },
+    "homepage": "https://github.com/akq/uiloader#readme"
+
+
+}
