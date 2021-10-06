@@ -76,12 +76,18 @@ async function scriptLoader(domain, ver){
         ModuleCache[domain].proxyModule = proxy.default
         return true
     }
-    for (var i in manifest.module) {
-        // var m = manifest.module[i]
-        // if(Array.isArray(m)){}
+    var loads = Object.keys(manifest.module).map((i)=>{
         var name = buildLibName(domain, i)
-        ModuleCache[name] = ModuleCache[name] || await getModule(domain, i)
-    }
+        ModuleCache[name] = ModuleCache[name] || getModule(domain, i)
+        return ModuleCache[name]
+    })
+    await Promise.all(loads)
+    // for (var i in manifest.module) {
+    //     // var m = manifest.module[i]
+    //     // if(Array.isArray(m)){}
+    //     var name = buildLibName(domain, i)
+    //     ModuleCache[name] = ModuleCache[name] || await getModule(domain, i)
+    // }
 }
 var url ={
     // tmpl_core: 3001
