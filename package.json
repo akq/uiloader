@@ -1,6 +1,6 @@
 {
     "name": "uiuxloader",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "the uiux module/domain loader",
     "repository": {
         "type": "git",
