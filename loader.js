@@ -78,7 +78,7 @@ async function scriptLoader(domain, ver){
     }
     var loads = Object.keys(manifest.module).map((i)=>{
         var name = buildLibName(domain, i)
-        ModuleCache[name] = ModuleCache[name] || getModule(domain, i)
+        ModuleCache[name] = ModuleCache[name] || await getModule(domain, i)
         return ModuleCache[name]
     })
     await Promise.all(loads)
