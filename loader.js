@@ -1,195 +1,243 @@
+const extractUrlAndGlobal = require("webpack/lib/util/extractUrlAndGlobal");
+const { RawSource } = require("webpack-sources");
+const RemoteModule = require("webpack/lib/container/RemoteModule");
+const RemoteToExternalDependency = require("webpack/lib/container/RemoteToExternalDependency");
+const FallbackItemDependency = require("webpack/lib/container/FallbackItemDependency");
+const FallbackDependency = require("webpack/lib/container/FallbackDependency");
+const FallbackModuleFactory = require("webpack/lib/container/FallbackModuleFactory");
+const { RuntimeGlobals } = require("webpack");
+const RemoteRuntimeModule = require("webpack/lib/container/RemoteRuntimeModule");
+const ExternalModuleFactoryPlugin = require("webpack/lib/ExternalModuleFactoryPlugin");
+const ModuleFederationPlugin = require("webpack/lib/container/ModuleFederationPlugin");
 
-var ModuleCache = {}
-var TmplCache = {}
-var TypeLib = {}
+const PLUGIN_NAME = "UiuxLoaderPlugin";
 
-function unload(element) {
-    document.head.removeChild(element);
-}
-
-function loadScript(url) {
-    var element = document.createElement("script");
-
-    element.src = url
-    element.type = "text/javascript"
-    element.async = true
-    document.head.appendChild(element)
-    return new Promise((resolve, reject) => {
-
-        element.onload = () => {
-            console.log(`Dynamic Script Loaded: ${url}`);
-            unload(element)
-            resolve();
-        }
-        element.onerror = () => {
-            console.error(`Dynamic Script Error: ${url}`);
-            unload(element)
-            reject()
-        }
-
-    })
-}
-/**
-    {
-        './manifest': './src/manifest.js
- 
+function checkReq(data, cb) {
+  var req = data.request
+  if (~req.indexOf("://")) {
+    var [domain, mod, scope = 'default'] = req.split('://')
+    if (checkDomain(domain)) {
+      var ref = 'webpack/container/reference/' + domain
+      return cb(req, ref, { domain, mod, scope })
     }
- */
-
-async function loadDomain(domain, ver) {
-    if (ModuleCache[domain]) {
-        return !!ModuleCache[domain].proxyModule
-    }
-    // Initializes the share scope. This fills it with known provided modules from this build and all remotes
-    await __webpack_init_sharing__("default")
-    
-    if (!window[domain+'_loader']) {
-        window[domain+'_loader'] = await scriptLoader(domain, ver)
-    }
-    else {
-        return window[domain+'_loader']
-        // throw {msg: domain+ ' is loading'}
-    }
-
-}
-async function scriptLoader(domain, ver){
-    var url = buildUrl(domain, ver)
-    // window[domain+'_loader'] = 
-    await loadScript(url)
-    //TODO error
-
-    var container = window[domain] // or get the container somewhere else
-    // Initialize the container, it may provide shared modules
-    await container.init(__webpack_share_scopes__.default)
-    var manifest = await getModule(domain, './manifest')
-
-    ModuleCache[domain] = { ...manifest }
-    if (manifest.typeLib) {
-        var libMod = await getModule(domain, manifest.typeLib)
-        for (var i in libMod) {
-            TypeLib[i === 'default' ? domain : domain + '.' + i] = libMod[i]
-        }
-    }
-
-    if (manifest.proxy) {
-        var proxy = await getModule(domain, manifest.proxy)
-        ModuleCache[domain].proxyModule = proxy.default
-        return true
-    }
-    var loads = Object.keys(manifest.module).map((i)=>{
-        var name = buildLibName(domain, i)
-        ModuleCache[name] = ModuleCache[name] || await getModule(domain, i)
-        return ModuleCache[name]
-    })
-    await Promise.all(loads)
-    // for (var i in manifest.module) {
-    //     // var m = manifest.module[i]
-    //     // if(Array.isArray(m)){}
-    //     var name = buildLibName(domain, i)
-    //     ModuleCache[name] = ModuleCache[name] || await getModule(domain, i)
-    // }
-}
-var url ={
-    // tmpl_core: 3001
-    // , uiux_engine : 3002
-    // , security_iRPM: 3003
-    // , html : 3004
-    // , tmpl_antd: 3005
-    // , tmpl_site1: 3006
-}
-export function registerUrl(obj){
-    url = obj
-}
-function buildUrl(domain, ver) {
-    if(!url[domain]) throw {msg:`domain ${domain} is not register`}
-    return url[domain]
+  }
 }
 
-function buildLibName(domain, tmpl) {
-    var mod = tmpl.startsWith('./')?tmpl.substr(2):tmpl
-    return `${domain}://${mod}`
+function checkDomain(domain){
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(domain) && domain !== 'http' && domain !== 'https'
 }
+class UiuxLoaderPlugin {
+  constructor(options={}) {
+    var {remotes, shared: sh,  manifest = {}, filename, ...opts} = options
+    var {name, module} = manifest
+    var shared
+    switch(typeof sh){
+      case 'string':
+        shared = sh.split(',').reduce((a,c)=>{a[c.trim()]={singleton: true}; return a;}, {})
+        break
+      case 'array':
+        shared = sh.reduce((a,c)=>{a[c.trim()]={singleton: true, import: false}; return a;}, {})
+        break
+      default: 
+        shared = sh  
+    } 
+    if(module)
+      this.mfOption = {
+        name: '$$'+name, exposes: module, filename:'remoteEntry.js', shared, ...opts
+      }
+    this.manifest = manifest
+	}
 
-async function getModule(domain, module) {
-    var factory = await window[domain].get(module)
-    var Module = factory()
-    return Module
-}
-function parseName(name) {
-    var parts = name.split('://')
-        , domain = parts.length === 1 ? DEF : parts[0]
-        , mod = parts.length < 3 ? 'default' : parts[2]
-        , tmpl = parts.length === 1 ? parts[0] : parts[1]
-    return {
-        domain, tmpl, mod, name
-    }
-}
-
-// function loadModule(domain, tmpl, mod) {
-    // if(arguments.length===1){
-    //     var {domain, tmpl, mod} = parseName(arguments[0])
-    // }
-function loadModule(uri) {
-    var {domain, tmpl, mod} = parseName(uri)
-    return async () => {
-        var useProxy = await loadDomain(domain)
-        var name = buildLibName(domain, tmpl)
-        if (useProxy===true) {
-            TmplCache[name] = ModuleCache[domain].proxyModule(tmpl)
-            return TmplCache[name] 
-        }
-        if(!ModuleCache[name]){
-            throw {
-                message: name+ ' is not found, please check the name'
+  apply(compiler) {
+    if(this.mfOption) new ModuleFederationPlugin(this.mfOption).apply(compiler)
+    var loaderAdded = false
+    compiler.hooks.compile.tap(PLUGIN_NAME, ({ normalModuleFactory }) => {
+      normalModuleFactory.hooks.factorize.tap(
+        PLUGIN_NAME,
+        data => {
+          return checkReq(data,
+            (req, ref, { domain }) =>{
+              new ExternalModuleFactoryPlugin('script', {[ref]: domain+ '@' +req}).apply(
+                normalModuleFactory
+              );
             }
+          )
+        })
+    })
+
+    compiler.hooks.compilation.tap(
+      PLUGIN_NAME,
+      (compilation, { normalModuleFactory }) => {
+        compilation.dependencyFactories.set(
+          RemoteToExternalDependency,
+          normalModuleFactory
+        );
+
+        compilation.dependencyFactories.set(
+          FallbackItemDependency,
+          normalModuleFactory
+        );
+
+        compilation.dependencyFactories.set(
+          FallbackDependency,
+          new FallbackModuleFactory()
+        );
+
+        normalModuleFactory.hooks.factorize.tap(
+          PLUGIN_NAME,
+          data => {
+            return checkReq(data,
+              (req, ref, { domain, mod, scope }) => new RemoteModule(
+                [domain, mod].join('/'),
+                [ref],
+                './' + mod,
+                scope)
+            )
+          }
+        )
+      }
+    )
+    var manifest = this.manifest
+    compiler.hooks.make.tap(PLUGIN_NAME, (compilation) => {
+
+      const scriptExternalModules = [];
+      const entryModules = [];
+      compilation.hooks.buildModule.tap(PLUGIN_NAME, (module) => {
+        if (
+          module.constructor.name === "ExternalModule" &&
+          module.externalType === "script"
+        ) {
+          scriptExternalModules.push(module);
         }
-        var exported = ModuleCache[name][mod]
-        if(!exported){
-            throw {
-                message: name+ ' is found, but the exported "'+mod+'" is not found, please check the name'
-            }
-        }
-        if (mod === 'default') {
-            TmplCache[name] = exported
+        if(module.constructor.name === 'ContainerEntryModule'){
+          entryModules.push(module)
+        }      
+      });
+
+
+      compilation.hooks.afterCodeGeneration.tap(PLUGIN_NAME, function () {
+        scriptExternalModules.map((module) => {
+          const domain = extractUrlAndGlobal(module.request)[1];
+          if(!checkDomain(domain)) return
+          const sourceMap =
+            compilation.codeGenerationResults.get(module).sources;
+          // const rawSource = sourceMap.get("javascript");
+          sourceMap.set(
+            "javascript",
+            new RawSource(
+              loaderAdded? 
+`var __webpack_error__ = new Error();
+module.exports = __webpack_modules__.__loader__("${domain}", __webpack_require__, __webpack_error__)`
+:
+`var __webpack_error__ = new Error();
+module.exports = __webpack_modules__.__loader__("${domain}", __webpack_require__, __webpack_error__);
+/***/ })
+, __loader__: ((name, __webpack_require__, __webpack_error__) =>{ 
+	window.__loader__ = window.__loader__ || ((name) => new Promise((resolve, reject) => {
+		if(typeof window['$$'+name] !== "undefined") return resolve();
+		__webpack_require__.l((window.__URLS__?.[name] || (console.log('name '+name + ' is not found'), '')) + "/remoteEntry.js", (event) => {
+			if(typeof window['$$'+name] !== "undefined") return resolve();
+      window['$$'+name]={
+        get:(mod)=>()=>({default: name+'://'+mod+' not found'})
+        , init:()=>null/*{throw {message: name+'://'+mod+' not found'}}*/
+      }
+      resolve()
+		}, name);
+	}).then(() => (window['$$'+name])));
+  window.__tmpl_cache__ = window.__tmpl_cache__ || {}
+  window.__uiux_import__ = window.__uiux_import__ || (async (uri)=>{
+    var [domain, mod, scope='default'] = uri.split('://')
+    if(domain && mod){
+        if(window.__tmpl_cache__[uri]) return Promise.resolve({default: window.__tmpl_cache__[uri]})
+        await window.__loader__(domain)
+        var container = window['$$'+domain]
+        if(container && container.init){
+          await container.init(__webpack_require__.S.default)
         }
         else{
-            TmplCache[name + '://' + mod] = exported
+          throw {
+            message: 'domain name "' + domain+ '" doesn\\'t have the init method'
+          }
         }
-        return exported
+        var {proxy, module: mods} = container.manifest
+        var mod1 = './'+mod, scope1 = scope
+        var useProxy = proxy && !mods[mod1]
+        if(useProxy){ 
+          var [pMod, pScope='default'] = proxy.split('://')
+          mod1 = pMod.startsWith('./')? pMod: './'+pMod
+          scope1 = pScope
+        }
+        var factory = await container.get(mod1)
+        var module = factory()
+        var exp = module[scope1]
+        if(exp){
+          window.__tmpl_cache__[uri] = useProxy?exp(mod, scope):exp
+          return Promise.resolve({default:window.__tmpl_cache__[uri] })
+        }
+        throw {
+          message: domain+'://'+mod + ' is found, but the exported "'+scope+'" is not found, please check the name'
+        }
     }
-}
-
-// function Import(domain, module, mod) {
-//     var libAsync = async () => await loadDomain(domain, module, mod)
-//     var lib = libAsync()
-//     return lib
-// }
-export async function Import(){
-    try {
-        return ImportThrow(...arguments)
-    } catch (e) {
-        // Deal with the fact the chain failed
+    else{
+        throw {
+          message: 'The name '+ uri +' is not corrected, please use the format domain://module or domain://module://scope'
+        }
     }
-}
-export async function ImportThrow(){
-    var modFn = await loadModule(...arguments);
-    var mod =  await modFn();
-    return mod
+  })
+
+	return window.__loader__(name);
+`
+              // rawSource.source().replace(`"${urlTemplate}"`, urlExpression)
+            )
+          );
+          if(!loaderAdded) loaderAdded = true
+        });
+
+        entryModules.map((module) => {
+          const sourceMap =
+            compilation.codeGenerationResults.get(module).sources;
+          const rawSource = sourceMap.get("javascript");
+          var src = rawSource.source()
+          var len1 = src.lastIndexOf('//')
+          var len2 = src.lastIndexOf('\n')
+
+          var {typeLib:lib} = manifest
+          src = src.substring(0, len1) 
+            + `\n var manifest = ${JSON.stringify(manifest, null, 2)};\n`
+            + `\n var typeLib;\n`
+            + src.substring(len1, len2)
+            + `, \n\tmanifest: ()=>(manifest)`
+            + (lib ? `, \n\tgetTypeLib: ()=>(async()=>{
+              if(typeLib) return typeLib
+              var factory = await get("${lib}")
+              var mod = factory()
+              typeLib = mod
+              return typeLib
+            }),\n\ttypeLib: ()=>(typeLib)`:'')
+            + src.substring(len2)
+          // debugger
+          sourceMap.set(
+            "javascript",
+            new RawSource(
+              src
+            )
+          )         
+
+        })
+      });
+
+      compilation.hooks.runtimeRequirementInTree
+      .for(RuntimeGlobals.ensureChunkHandlers)
+      .tap("ContainerReferencePlugin", (chunk, set) => {
+        set.add(RuntimeGlobals.module);
+        set.add(RuntimeGlobals.moduleFactoriesAddOnly);
+        set.add(RuntimeGlobals.hasOwnProperty);
+        set.add(RuntimeGlobals.initializeSharing);
+        set.add(RuntimeGlobals.shareScopeMap);
+        compilation.addRuntimeModule(chunk, new RemoteRuntimeModule());
+      });
+    });
+  }
 }
 
-var Loader
-if(window.Loader) Loader = window.Loader
-else Loader = window.Loader = {
-    ModuleCache
-    , TmplCache
-    , TypeLib
-    , loadModule
-    , loadDomain
-    , parseName
-    , Import
-    , ImportThrow
-    , registerUrl
-}
-
-export default Loader
-
+module.exports = UiuxLoaderPlugin;

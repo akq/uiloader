@@ -1,7 +1,7 @@
 {
     "name": "uiuxloader",
-    "version": "1.0.2",
-    "description": "the uiux module/domain loader",
+    "version": "2.0.0",
+    "description": "the webpack plugin for uiux module/domain loader",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/akq/uiuxloader.git"
@@ -12,7 +12,8 @@
     "bugs": {
         "url": "https://github.com/akq/uiuxloader/issues"
     },
-    "homepage": "https://github.com/akq/uiuxloader"
-
-
+    "homepage": "https://github.com/akq/uiuxloader",
+    "dependencies": {
+        "webpack": "^5.58.2"
+    }
 }
