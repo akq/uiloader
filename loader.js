@@ -26,6 +26,19 @@ function checkReq(data, cb) {
 function checkDomain(domain){
   return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(domain) && domain !== 'http' && domain !== 'https'
 }
+function singleOpt(name, noImport){
+  var cfg = {
+    singleton: true
+  }
+  if(name === 'react' || name === 'react-dom'){
+    cfg.strictVersion = true
+    cfg.requiredVersion = ">=16.8.0 <18.0.0"
+  }
+  if(noImport){
+    cfg.import = false
+  }
+  return cfg
+}
 class UiuxLoaderPlugin {
   constructor(options={}) {
     var {remotes, shared: sh,  manifest = {}, filename, ...opts} = options
@@ -33,17 +46,18 @@ class UiuxLoaderPlugin {
     var shared
     switch(typeof sh){
       case 'string':
-        shared = sh.split(',').reduce((a,c)=>{a[c.trim()]={singleton: true}; return a;}, {})
+        shared = sh.split(',').reduce((a,c)=>{a[c.trim()]=singleOpt(c.trim()); return a;}, {})
         break
       case 'array':
-        shared = sh.reduce((a,c)=>{a[c.trim()]={singleton: true, import: false}; return a;}, {})
+        shared = sh.reduce((a,c)=>{a[c.trim()]=singleOpt(c.trim(), true); return a;}, {})
         break
       default: 
         shared = sh  
     } 
     if(module)
+      name = '$$'+name
       this.mfOption = {
-        name: '$$'+name, exposes: module, filename:'remoteEntry.js', shared, ...opts
+        name, exposes: module, filename:'remoteEntry.js', library:{type: 'window', name}, shared, ...opts
       }
     this.manifest = manifest
 	}
@@ -145,7 +159,7 @@ module.exports = __webpack_modules__.__loader__("${domain}", __webpack_require__
 		}, name);
 	}).then(() => (window['$$'+name])));
   window.__tmpl_cache__ = window.__tmpl_cache__ || {}
-  window.__uiux_import__ = window.__uiux_import__ || (async (uri)=>{
+  window.__uiux_import__ = window.__uiux_import__ || (window.__create_import__ && window.__create_import__(__webpack_require__))|| (async (uri)=>{
     var [domain, mod, scope='default'] = uri.split('://')
     if(domain && mod){
         if(window.__tmpl_cache__[uri]) return Promise.resolve({default: window.__tmpl_cache__[uri]})
