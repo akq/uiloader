@@ -124,19 +124,27 @@ window.__loader__ = (name) => {
 var inProgress = {}
 window.localRequire = (url, done, key, chunkId) => {
     if (inProgress[url]) { inProgress[url].push(done); return; }
+    inProgress[url] = [done]
     try {
         getRemote(url).then(x => {
+            var doneFns = inProgress[url];
+            delete inProgress[url]
+
             doneFns && doneFns.forEach((fn) => (fn()))
         })
-        var doneFns = inProgress[url];
-        delete inProgress[url]
     } catch (e) {
         console.log(e)
     }
 }
+
 window.use = async (uri) => {
     var module
-
+    if(!window.__URLS__){
+        await new Promise((resolve, reject)=>window.localRequire(window.domainURL, resolve))
+        if(!window.__URLS__){
+            throw {msg: 'domains location is not defined.'}
+        }
+    }
     var [domain, mod, scope = 'default'] = uri.split('://')
     if (window.__uiux_import__) {
         module = await window.__uiux_import__(uri)
