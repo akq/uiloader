@@ -44,11 +44,11 @@ class UiuxLoaderPlugin {
     var {remotes, shared: sh,  manifest = {}, filename, ...opts} = options
     var {name, module} = manifest
     var shared
-    switch(typeof sh){
-      case 'string':
+    switch(Object.prototype.toString.call(sh)){
+      case '[object String]':
         shared = sh.split(',').reduce((a,c)=>{a[c.trim()]=singleOpt(c.trim()); return a;}, {})
         break
-      case 'array':
+      case '[object Array]':
         shared = sh.reduce((a,c)=>{a[c.trim()]=singleOpt(c.trim(), true); return a;}, {})
         break
       default: 
